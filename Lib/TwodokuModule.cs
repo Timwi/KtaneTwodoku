@@ -209,12 +209,12 @@ public class TwodokuModule : MonoBehaviour
         foreach (var (cell, isNumClue, clue) in req)
         {
             while (j < cell)
-                Squares[j++].sharedMaterial = arrangement[j] ? HighlightMaterial : EmptyMaterial;
+                Squares[j].sharedMaterial = arrangement[j++] ? HighlightMaterial : EmptyMaterial;
             Squares[j++].sharedMaterial = isNumClue ? NumberMaterials[clue] : SymbolMaterials[clue];
             Debug.Log($"[Twodoku #{_moduleId}] Cell {(char) ('A' + cell % 6)}{cell / 6 + 1} {(isNumClue ? "number" : "symbol")} {(isNumClue ? $"{clue + 1}" : _symbolNames[clue])}");
         }
         while (j < Squares.Length)
-            Squares[j++].sharedMaterial = arrangement[j] ? HighlightMaterial : EmptyMaterial;
+            Squares[j].sharedMaterial = arrangement[j++] ? HighlightMaterial : EmptyMaterial;
 
         Debug.Log($"[Twodoku #{_moduleId}] Cells highlighted: {Enumerable.Range(0, 36).Where(cell => arrangement[cell]).Select(cell => $"{(char) ('A' + cell % 6)}{cell / 6 + 1}").JoinString(", ")}");
 
@@ -226,20 +226,36 @@ public class TwodokuModule : MonoBehaviour
     private static IEnumerable<(int sym, int num)[]> recurse((int sym, int num)?[] sofar, (int sym, int num)[][] possibilities, int[] symsUsed, bool symIsWide, System.Random rnd)
     {
         var bestCell = -1;
-        (int sym, int num)[] bestArr = null;
+        var bestIsNum = false;
+        HashSet<int> bestPosses = null;
         for (var cell = 0; cell < 36; cell++)
         {
-            if (possibilities[cell] is { } arr && (bestArr == null || arr.Length < bestArr.Length))
+            if (possibilities[cell] is not { } arr)
+                continue;
+            var possNums = arr.Select(t => t.num).ToHashSet();
+            if (possNums.Count == 0)
+                yield break;
+            if (bestPosses == null || possNums.Count < bestPosses.Count)
             {
                 bestCell = cell;
-                bestArr = arr;
-                if (arr.Length == 0)
-                    yield break;
-                if (arr.Length == 1)
+                bestIsNum = true;
+                bestPosses = possNums;
+                if (possNums.Count == 1)
+                    goto shortcut;
+            }
+            var possSyms = arr.Select(t => t.sym).ToHashSet();
+            if (possSyms.Count == 0)
+                yield break;
+            if (bestPosses == null || possSyms.Count < bestPosses.Count)
+            {
+                bestCell = cell;
+                bestIsNum = false;
+                bestPosses = possSyms;
+                if (possSyms.Count == 1)
                     goto shortcut;
             }
         }
-        if (bestArr == null)
+        if (bestPosses == null)
         {
             yield return sofar.Select(tup => tup.Value).ToArray();
             yield break;
@@ -250,12 +266,16 @@ public class TwodokuModule : MonoBehaviour
         var row = bestCell / 6;
         var tb = getTallBox(bestCell);
         var wb = getWideBox(bestCell);
+        var bestArr = bestPosses.ToArray();
         var ofs = rnd == null ? 0 : rnd.Next(0, bestArr.Length);
         for (var arrIx = 0; arrIx < bestArr.Length; arrIx++)
         {
-            var (sym, num) = bestArr[(arrIx + ofs) % bestArr.Length];
-            // Place the new symbol/number combination
+            var value = bestArr[(arrIx + ofs) % bestArr.Length];
+
+            // Place the new symbol/number
             var newSofar = sofar.ToArray();
+            //if(sofar[bestCell]==null)
+                
             newSofar[bestCell] = (sym, num);
 
             var isNewSymbol = !symsUsed.Contains(sym);

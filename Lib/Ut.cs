@@ -751,4 +751,12 @@ public static class Ut
         sb.Append(lastSeparator).Append(prefix).Append(prev).Append(suffix);
         return sb.ToString();
     }
+
+    /// <summary>Creates a <see cref="HashSet{T}"/> from an enumerable collection.</summary>
+    public static HashSet<T> ToHashSet<T>(this IEnumerable<T> source, IEqualityComparer<T> comparer = null)
+    {
+        if (source == null)
+            throw new ArgumentNullException(nameof(source));
+        return comparer == null ? new HashSet<T>(source) : new HashSet<T>(source, comparer);
+    }
 }
