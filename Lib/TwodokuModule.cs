@@ -40,10 +40,16 @@ public class TwodokuModule : MonoBehaviour
     void Start()
     {
         _moduleId = _moduleIdCounter++;
-        StartCoroutine(GeneratePuzzle());
 
+        for (var i = 0; i < 3; i++)
+            ButtonLabels[i].text = "";
+        for (var i = 0; i < 36; i++)
+            Squares[i].sharedMaterial = EmptyMaterial;
         for (int i = 0; i < Buttons.Length; i++)
             Buttons[i].OnInteract += ButtonPress(i);
+        SolutionDisplay.text = "";
+
+        StartCoroutine(GeneratePuzzle());
     }
 
     private KMSelectable.OnInteractHandler ButtonPress(int btn)
@@ -75,6 +81,7 @@ public class TwodokuModule : MonoBehaviour
                 {
                     _moduleSolved = true;
                     Module.HandlePass();
+                    Audio.PlayGameSoundAtTransform(KMSoundOverride.SoundEffect.CorrectChime, transform);
                     Debug.Log($"[Twodoku #{_moduleId}] Module solved.");
                     SolutionDisplay.text = $"<color=#00FF00>{_solutionWord}</color>";
                     for (var i = 0; i < 3; i++)
@@ -127,137 +134,202 @@ public class TwodokuModule : MonoBehaviour
         Debug.Log($"[Twodoku #{_moduleId}] Random seed: {seed}");
 
         var solutionWord = Data.AllWords.PickRandom(rnd);
-        var symIsWide = rnd.Next(0, 2) != 0;
-        var arrangement = _arrangements.PickRandom(rnd);
         var isEditor = Application.isEditor;
 
         // These are assigned within the thread
         (int cell, bool isNumClue, int clue)[] req = null;
         (int sym, int num)[] solution = null;
+        bool symIsWide = false;
+        bool[] arrangement = null;
 
         var threadMessages = new List<string>();
         var threadDone = false;
         var thread = new Thread(() =>
         {
-            var encs = Enumerable.Range(0, 6)
-                .Select(letterIx => Enumerable.Range(0, 6 * _symbolNames.Length)
-                    .Select(i => (sym: i / 6, num: i % 6))
-                    .Where(tup => _symbolNames[tup.sym][tup.num % _symbolNames[tup.sym].Length] == solutionWord[letterIx])
-                    .ToArray()
-                    .Shuffle(rnd))
-                .ToArray();
-
-            var startGrid = Enumerable.Range(0, 36).Select(i => arrangement[i] ? encs[i / 6] : _allPoss).ToArray();
-            solution = recurse(new (int sym, int num)?[36], startGrid, [], symIsWide, rnd).FirstOrDefault();
-
-            var candidateClueIndexes = Enumerable.Range(0, 36).Where(i => !arrangement[i]).ToList();
-
-            var iter = 0;
-            tryAgain:
-            iter++;
-            if (isEditor)
-                lock (threadMessages)
-                    threadMessages.Add($"iter = {iter}");
-
-            candidateClueIndexes.Shuffle(rnd);
-            var clues = candidateClueIndexes.Select((cell, n) => n >= 15 ? (cell, isNumClue: true, clue: solution[cell].num) : (cell, isNumClue: false, clue: solution[cell].sym)).ToArray();
-            bool testUniqueness(IEnumerable<int> setToTest)
+            try
             {
-                var poss = Enumerable.Repeat(_allPoss, 36).ToArray();
-                foreach (var clueIx in setToTest)
-                {
-                    var (cell, isNumClue, clue) = clues[clueIx];
-                    poss[cell] = poss[cell].Where(tup => (isNumClue ? tup.num : tup.sym) == clue).ToArray();
-                }
-                return !recurse(new (int sym, int num)?[36], poss, [], false, null).Concat(recurse(new (int sym, int num)?[36], poss, [], true, null)).Skip(1).Any();
+                var encs = Enumerable.Range(0, 6)
+                    .Select(letterIx => Enumerable.Range(0, 6 * _symbolNames.Length)
+                        .Select(i => (sym: i / 6, num: i % 6))
+                        .Where(tup => _symbolNames[tup.sym][tup.num % _symbolNames[tup.sym].Length] == solutionWord[letterIx])
+                        .ToArray()
+                        .Shuffle(rnd))
+                    .ToArray();
+
+                var symIsWideStart = rnd.Next(0, 2) != 0;
+                var allArrangements = _arrangements.ToList().Shuffle(rnd);
+
+                for (var arrIx = 0; arrIx < allArrangements.Count; arrIx++)
+                    foreach (var symIsWideF in new[] { symIsWideStart, !symIsWideStart })
+                    {
+                        symIsWide = symIsWideF;
+                        arrangement = allArrangements[arrIx];
+                        var startGrid = Enumerable.Range(0, 36).Select(i => arrangement[i] ? encs[i / 6] : _allPoss).ToArray();
+                        solution = recurse(new int?[36], new int?[36], startGrid, [], symIsWide, rnd).FirstOrDefault();
+                        if (solution == null)
+                        {
+                            if (isEditor)
+                                lock (threadMessages)
+                                    threadMessages.Add($"♦ Bad combo: {solutionWord}, symIsWide={symIsWide}, arrangement={arrangement.Select(b => b ? "1" : "0").JoinString()}");
+                            continue;
+                        }
+
+                        var candidateClueIndexes = Enumerable.Range(0, 36).Where(i => !arrangement[i]).ToList();
+
+                        var iter = 0;
+                        tryAgain:
+                        iter++;
+                        if (iter >= 20)
+                        {
+                            if (isEditor)
+                                lock (threadMessages)
+                                    threadMessages.Add($"♦ Bad iter: {solutionWord}, symIsWide={symIsWide}, arrangement={arrangement.Select(b => b ? "1" : "0").JoinString()}");
+                            continue;
+                        }
+
+                        candidateClueIndexes.Shuffle(rnd);
+                        var clues = candidateClueIndexes.Select((cell, n) => n >= 15 ? (cell, isNumClue: true, clue: solution[cell].num) : (cell, isNumClue: false, clue: solution[cell].sym)).ToArray();
+                        bool testUniqueness(IEnumerable<int> setToTest)
+                        {
+                            var poss = Enumerable.Repeat(_allPoss, 36).ToArray();
+                            foreach (var clueIx in setToTest)
+                            {
+                                var (cell, isNumClue, clue) = clues[clueIx];
+                                poss[cell] = poss[cell].Where(tup => (isNumClue ? tup.num : tup.sym) == clue).ToArray();
+                            }
+                            return !recurse(new int?[36], new int?[36], poss, [], false, null).Concat(recurse(new int?[36], new int?[36], poss, [], true, null)).Skip(1).Any();
+                        }
+                        if (!testUniqueness(Enumerable.Range(0, clues.Length)))
+                            goto tryAgain;
+                        req = Ut.ReduceRequiredSet(Enumerable.Range(0, clues.Length), skipConsistencyTest: true, test: state =>
+                        {
+                            // Must have at least 6 unique symbols
+                            if (state.SetToTest.Where(clueIx => !clues[clueIx].isNumClue).Select(clueIx => clues[clueIx].clue).Distinct().Count() < 6)
+                                return false;
+                            if (isEditor)
+                                lock (threadMessages)
+                                    threadMessages.Add(Enumerable.Range(0, clues.Length).Select(clueIx => state.SetToTest.Contains(clueIx) ? "█" : "░").JoinString());
+                            return testUniqueness(state.SetToTest);
+                        }).Select(ix => clues[ix])
+                            .OrderBy(tup => tup.cell)
+                            .ToArray();
+                        threadDone = true;
+                        if (isEditor)
+                            lock (threadMessages)
+                                threadMessages.Add($"iter = {iter}");
+                        return;
+                    }
             }
-            if (!testUniqueness(Enumerable.Range(0, clues.Length)))
-                goto tryAgain;
-            req = Ut.ReduceRequiredSet(Enumerable.Range(0, clues.Length), skipConsistencyTest: true, test: state =>
+            catch (Exception e)
             {
-                // Must have at least 6 unique symbols
-                if (state.SetToTest.Where(clueIx => !clues[clueIx].isNumClue).Select(clueIx => clues[clueIx].clue).Distinct().Count() < 6)
-                    return false;
                 if (isEditor)
                     lock (threadMessages)
-                        threadMessages.Add(Enumerable.Range(0, clues.Length).Select(clueIx => state.SetToTest.Contains(clueIx) ? "█" : "░").JoinString());
-                return testUniqueness(state.SetToTest);
-            }).Select(ix => clues[ix])
-                .OrderBy(tup => tup.cell)
-                .ToArray();
-            threadDone = true;
+                        threadMessages.Add($"Exception {e.GetType()}: {e.Message}\n{e.StackTrace}");
+            }
         });
         thread.Start();
         Debug.Log($"<Twodoku #{_moduleId}> Thread started.");
+        var lastSq = 0;
+        void log(string msg)
+        {
+            if (msg.StartsWith("Exception"))
+                Debug.LogError($"<Twodoku #{_moduleId}> {msg}");
+            else if (msg.StartsWith("♦"))
+                Debug.LogWarning($"<Twodoku #{_moduleId}> {msg}");
+            else
+                Debug.Log($"<Twodoku #{_moduleId}> {msg}");
+        }
         while (!threadDone)
         {
-            yield return null;
+            lastSq = (lastSq + Rnd.Range(0, 35)) % 36;
+            Squares[lastSq].sharedMaterial = HighlightMaterial;
+            yield return new WaitForSeconds(Rnd.Range(.4f, .9f));
+            Squares[lastSq].sharedMaterial = EmptyMaterial;
             if (isEditor)
                 lock (threadMessages)
                 {
                     foreach (var msg in threadMessages)
-                        Debug.Log($"<Twodoku #{_moduleId}> {msg}");
+                        log(msg);
                     threadMessages.Clear();
                 }
         }
         if (isEditor)
             foreach (var msg in threadMessages)
-                Debug.Log($"<Twodoku #{_moduleId}> {msg}");
+                log(msg);
         _solutionWord = solutionWord;
+        for (var btn = 0; btn < 3; btn++)
+            ButtonLabels[btn].text = _buttonLevel0[btn];
+        SolutionDisplay.text = "<color=#FFFFFF>│</color>";
 
-        var j = 0;
-        foreach (var (cell, isNumClue, clue) in req)
-        {
-            while (j < cell)
-                Squares[j].sharedMaterial = arrangement[j++] ? HighlightMaterial : EmptyMaterial;
-            Squares[j++].sharedMaterial = isNumClue ? NumberMaterials[clue] : SymbolMaterials[clue];
-            Debug.Log($"[Twodoku #{_moduleId}] Cell {(char) ('A' + cell % 6)}{cell / 6 + 1} {(isNumClue ? "number" : "symbol")} {(isNumClue ? $"{clue + 1}" : _symbolNames[clue])}");
-        }
-        while (j < Squares.Length)
-            Squares[j].sharedMaterial = arrangement[j++] ? HighlightMaterial : EmptyMaterial;
-
+        Debug.Log($"[Twodoku #{_moduleId}] Clues: {req.Select(tup => $"{(char) ('A' + tup.cell % 6)}{tup.cell / 6 + 1}={(tup.isNumClue ? $"{tup.clue + 1}" : _symbolNames[tup.clue])}").JoinString(",")}");
         Debug.Log($"[Twodoku #{_moduleId}] Cells highlighted: {Enumerable.Range(0, 36).Where(cell => arrangement[cell]).Select(cell => $"{(char) ('A' + cell % 6)}{cell / 6 + 1}").JoinString(", ")}");
-
         Debug.Log($"[Twodoku #{_moduleId}] Solution numbers: {solution.Select(c => c.num + 1).JoinString()}");
         Debug.Log($"[Twodoku #{_moduleId}] Solution symbols: {solution.Select(c => _symbolNames[c.sym]).JoinString(" ")}");
         Debug.Log($"[Twodoku #{_moduleId}] Solution word: {solutionWord}");
+
+        req.Shuffle();
+        foreach (var (cell, isNumClue, clue) in req)
+            if (isNumClue)
+            {
+                Squares[cell].sharedMaterial = NumberMaterials[clue];
+                yield return new WaitForSeconds(Rnd.Range(.1f, .2f));
+            }
+        yield return new WaitForSeconds(.6f);
+        req.Shuffle();
+        foreach (var (cell, isNumClue, clue) in req)
+            if (!isNumClue)
+            {
+                Squares[cell].sharedMaterial = SymbolMaterials[clue];
+                yield return new WaitForSeconds(Rnd.Range(.1f, .2f));
+            }
+        yield return new WaitForSeconds(.6f);
+        foreach (var row in Enumerable.Range(0, 6).ToList().Shuffle())
+        {
+            var col = arrangement.Skip(6 * row).Take(6).IndexOf(true);
+            Squares[col + 6 * row].sharedMaterial = HighlightMaterial;
+            yield return new WaitForSeconds(Rnd.Range(.1f, .2f));
+        }
     }
 
-    private static IEnumerable<(int sym, int num)[]> recurse((int sym, int num)?[] sofar, (int sym, int num)[][] possibilities, int[] symsUsed, bool symIsWide, System.Random rnd)
+    private static IEnumerable<(int sym, int num)[]> recurse(int?[] sofarSym, int?[] sofarNum, (int sym, int num)[][] possibilities, int[] symsUsed, bool symIsWide, System.Random rnd)
     {
         var bestCell = -1;
         var bestIsNum = false;
         HashSet<int> bestPosses = null;
         for (var cell = 0; cell < 36; cell++)
         {
-            if (possibilities[cell] is not { } arr)
-                continue;
-            var possNums = arr.Select(t => t.num).ToHashSet();
-            if (possNums.Count == 0)
-                yield break;
-            if (bestPosses == null || possNums.Count < bestPosses.Count)
+            if (sofarSym[cell] == null)
             {
-                bestCell = cell;
-                bestIsNum = true;
-                bestPosses = possNums;
-                if (possNums.Count == 1)
-                    goto shortcut;
+                var possSyms = possibilities[cell].Select(t => t.sym).ToHashSet();
+                if (possSyms.Count == 0)
+                    yield break;
+                if (bestPosses == null || possSyms.Count < bestPosses.Count)
+                {
+                    bestCell = cell;
+                    bestIsNum = false;
+                    bestPosses = possSyms;
+                    if (possSyms.Count == 1)
+                        goto shortcut;
+                }
             }
-            var possSyms = arr.Select(t => t.sym).ToHashSet();
-            if (possSyms.Count == 0)
-                yield break;
-            if (bestPosses == null || possSyms.Count < bestPosses.Count)
+            if (sofarNum[cell] == null)
             {
-                bestCell = cell;
-                bestIsNum = false;
-                bestPosses = possSyms;
-                if (possSyms.Count == 1)
-                    goto shortcut;
+                var possNums = possibilities[cell].Select(t => t.num).ToHashSet();
+                if (possNums.Count == 0)
+                    yield break;
+                if (bestPosses == null || possNums.Count < bestPosses.Count)
+                {
+                    bestCell = cell;
+                    bestIsNum = true;
+                    bestPosses = possNums;
+                    if (possNums.Count == 1)
+                        goto shortcut;
+                }
             }
         }
         if (bestPosses == null)
         {
-            yield return sofar.Select(tup => tup.Value).ToArray();
+            yield return Enumerable.Range(0, 36).Select(i => (sym: sofarSym[i].Value, num: sofarNum[i].Value)).ToArray();
             yield break;
         }
 
@@ -272,30 +344,33 @@ public class TwodokuModule : MonoBehaviour
         {
             var value = bestArr[(arrIx + ofs) % bestArr.Length];
 
-            // Place the new symbol/number
-            var newSofar = sofar.ToArray();
-            //if(sofar[bestCell]==null)
-                
-            newSofar[bestCell] = (sym, num);
-
-            var isNewSymbol = !symsUsed.Contains(sym);
-            var newSymsUsed = isNewSymbol ? symsUsed.Append(sym) : symsUsed;
-
             // Determine what symbol/number combinations are still possible in the other cells
             var newPoss = possibilities
                 .Select((np, ix) =>
-                    np == null || ix == bestCell ? null :
-                    // Remove symbols/numbers from the same row, column, or definitely the same box
-                    ix / 6 == row || ix % 6 == col || (getWideBox(ix) == wb && getTallBox(ix) == tb) ? np.Where(tup => tup.sym != sym && tup.num != num).ToArray() :
-                    // Remove same symbols in the same boxes
-                    ((symIsWide ? getWideBox(ix) == wb : getTallBox(ix) == tb) ? np.Where(tup => tup.sym != sym).ToArray() : np)
-                        // Remove same numbers in the same boxes
-                        .Apply(np2 => (symIsWide ? getTallBox(ix) == tb : getWideBox(ix) == wb) ? np2.Where(tup => tup.num != num).ToArray() : np2))
+                    np == null ? null :
+                    ix == bestCell ? np :
+                    // Remove symbols/numbers from the same row, column, or box
+                    bestIsNum
+                        ? (ix / 6 == row || ix % 6 == col || (symIsWide ? getTallBox(ix) == tb : getWideBox(ix) == wb) ? np.Where(tup => tup.num != value).ToArray() : np)
+                        : (ix / 6 == row || ix % 6 == col || (symIsWide ? getWideBox(ix) == wb : getTallBox(ix) == tb) ? np.Where(tup => tup.sym != value).ToArray() : np))
                 .ToArray();
+
+            // Place the new symbol/number
+            var newSofar = (bestIsNum ? sofarNum : sofarSym).ToArray();
+            newSofar[bestCell] = value;
+            var newSofarNum = bestIsNum ? newSofar : sofarNum;
+            var newSofarSym = bestIsNum ? sofarSym : newSofar;
+
+            var isNewSymbol = !bestIsNum && !symsUsed.Contains(value);
+            var newSymsUsed = isNewSymbol ? symsUsed.Append(value) : symsUsed;
 
             // Remove symbol possibilities if we’ve reached 6 symbols
             if (isNewSymbol && newSymsUsed.Length == 6)
                 newPoss = newPoss.Select(np => np?.Where(tup => newSymsUsed.Contains(tup.sym)).ToArray()).ToArray();
+
+            newPoss[bestCell] = (bestIsNum ? sofarSym : sofarNum)[bestCell] == null
+                ? newPoss[bestCell].Where(tup => bestIsNum ? tup.num == value : tup.sym == value).ToArray()
+                : null;
 
             bool elemNotAvailable(Func<(int sym, int num), int> getter)
             {
@@ -309,9 +384,9 @@ public class TwodokuModule : MonoBehaviour
                             rowsHave[i / 6][v] = true;
                             colsHave[i % 6][v] = true;
                         }
-                    else if (newSofar[i] is { } tup)
+                    else
                     {
-                        var v = getter(tup);
+                        var v = getter((newSofarSym[i].Value, newSofarNum[i].Value));
                         rowsHave[i / 6][v] = true;
                         colsHave[i % 6][v] = true;
                     }
@@ -322,7 +397,7 @@ public class TwodokuModule : MonoBehaviour
             if (elemNotAvailable(tup => tup.num) || (newSymsUsed.Length == 6 && elemNotAvailable(tup => newSymsUsed.IndexOf(tup.sym))))
                 continue;
 
-            foreach (var sln in recurse(newSofar, newPoss, newSymsUsed, symIsWide, rnd))
+            foreach (var sln in recurse(newSofarSym, newSofarNum, newPoss, newSymsUsed, symIsWide, rnd))
                 yield return sln;
         }
     }
