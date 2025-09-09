@@ -5,7 +5,7 @@ using System.Linq;
 using System.Threading;
 using Twodoku;
 using UnityEngine;
-
+using UnityEngine.UI;
 using Rnd = UnityEngine.Random;
 
 /// <summary>
@@ -18,12 +18,9 @@ public class TwodokuModule : MonoBehaviour
     public KMBombModule Module;
     public KMAudio Audio;
 
-    public Material[] SymbolMaterials;
-    public Material[] NumberMaterials;
-    public Material EmptyMaterial;
-    public Material HighlightMaterial;
+    public Sprite[] AllSprites;
+    public Image SymbolTemplate;
 
-    public MeshRenderer[] Squares;
     public KMSelectable[] Buttons;
     public TextMesh[] ButtonLabels;
     public TextMesh SolutionDisplay;
@@ -37,17 +34,19 @@ public class TwodokuModule : MonoBehaviour
     private int _inputLevel = 0;
     private int _inputStart = 0;
 
+    private List<Image> InstantiatedSymbols = new List<Image>();
+    private List<Image> InstantiatedMarkers = new List<Image>();
+
     void Start()
     {
         _moduleId = _moduleIdCounter++;
 
         for (var i = 0; i < 3; i++)
             ButtonLabels[i].text = "";
-        for (var i = 0; i < 36; i++)
-            Squares[i].sharedMaterial = EmptyMaterial;
         for (int i = 0; i < Buttons.Length; i++)
             Buttons[i].OnInteract += ButtonPress(i);
         SolutionDisplay.text = "";
+        SymbolTemplate.transform.localScale = Vector3.zero;
 
         StartCoroutine(GeneratePuzzle());
     }
@@ -75,15 +74,16 @@ public class TwodokuModule : MonoBehaviour
                 {
                     _solutionIx++;
                     _inputLevel = 0;
-                    SolutionDisplay.text = $"<color=#E053FF>{_solutionWord.Substring(0, _solutionIx)}</color><color=#FFFFFF>│</color>";
+                    SolutionDisplay.text = $"<color=#FFF>{_solutionWord.Substring(0, _solutionIx)}</color><color=#888>│</color>";
                 }
                 if (_solutionIx == _solutionWord.Length)
                 {
                     _moduleSolved = true;
                     Module.HandlePass();
+                    StartCoroutine(SolveAnim());
                     Audio.PlayGameSoundAtTransform(KMSoundOverride.SoundEffect.CorrectChime, transform);
                     Debug.Log($"[Twodoku #{_moduleId}] Module solved.");
-                    SolutionDisplay.text = $"<color=#00FF00>{_solutionWord}</color>";
+                    SolutionDisplay.text = $"<color=#3F3>{_solutionWord}</color>";
                     for (var i = 0; i < 3; i++)
                     {
                         ButtonLabels[i].text = "✓";
@@ -239,12 +239,13 @@ public class TwodokuModule : MonoBehaviour
             else
                 Debug.Log($"<Twodoku #{_moduleId}> {msg}");
         }
+        SymbolTemplate.transform.localScale = Vector3.one;
+        SymbolTemplate.sprite = AllSprites[0];
         while (!threadDone)
         {
             lastSq = (lastSq + Rnd.Range(0, 35)) % 36;
-            Squares[lastSq].sharedMaterial = HighlightMaterial;
-            yield return new WaitForSeconds(Rnd.Range(.4f, .9f));
-            Squares[lastSq].sharedMaterial = EmptyMaterial;
+            PlaceSymbol(SymbolTemplate, lastSq);
+            yield return new WaitForSeconds(0.35f);
             if (isEditor)
                 lock (threadMessages)
                 {
@@ -253,13 +254,14 @@ public class TwodokuModule : MonoBehaviour
                     threadMessages.Clear();
                 }
         }
+        SymbolTemplate.transform.localScale = Vector3.zero;
         if (isEditor)
             foreach (var msg in threadMessages)
                 log(msg);
         _solutionWord = solutionWord;
         for (var btn = 0; btn < 3; btn++)
             ButtonLabels[btn].text = _buttonLevel0[btn];
-        SolutionDisplay.text = "<color=#FFFFFF>│</color>";
+        SolutionDisplay.text = "<color=#888>│</color>";
 
         Debug.Log($"[Twodoku #{_moduleId}] Clues: {req.Select(tup => $"{(char) ('A' + tup.cell % 6)}{tup.cell / 6 + 1}={(tup.isNumClue ? $"{tup.clue + 1}" : _symbolNames[tup.clue])}").JoinString(",")}");
         Debug.Log($"[Twodoku #{_moduleId}] Cells highlighted: {Enumerable.Range(0, 36).Where(cell => arrangement[cell]).Select(cell => $"{(char) ('A' + cell % 6)}{cell / 6 + 1}").JoinString(", ")}");
@@ -267,28 +269,7 @@ public class TwodokuModule : MonoBehaviour
         Debug.Log($"[Twodoku #{_moduleId}] Solution symbols: {solution.Select(c => _symbolNames[c.sym]).JoinString(" ")}");
         Debug.Log($"[Twodoku #{_moduleId}] Solution word: {solutionWord}");
 
-        req.Shuffle();
-        foreach (var (cell, isNumClue, clue) in req)
-            if (isNumClue)
-            {
-                Squares[cell].sharedMaterial = NumberMaterials[clue];
-                yield return new WaitForSeconds(Rnd.Range(.1f, .2f));
-            }
-        yield return new WaitForSeconds(.6f);
-        req.Shuffle();
-        foreach (var (cell, isNumClue, clue) in req)
-            if (!isNumClue)
-            {
-                Squares[cell].sharedMaterial = SymbolMaterials[clue];
-                yield return new WaitForSeconds(Rnd.Range(.1f, .2f));
-            }
-        yield return new WaitForSeconds(.6f);
-        foreach (var row in Enumerable.Range(0, 6).ToList().Shuffle())
-        {
-            var col = arrangement.Skip(6 * row).Take(6).IndexOf(true);
-            Squares[col + 6 * row].sharedMaterial = HighlightMaterial;
-            yield return new WaitForSeconds(Rnd.Range(.1f, .2f));
-        }
+        StartCoroutine(IntroduceTwodoku(req, arrangement));
     }
 
     private static IEnumerable<(int sym, int num)[]> recurse(int?[] sofarSym, int?[] sofarNum, (int sym, int num)[][] possibilities, int[] symsUsed, bool symIsWide, System.Random rnd)
@@ -400,5 +381,115 @@ public class TwodokuModule : MonoBehaviour
             foreach (var sln in recurse(newSofarSym, newSofarNum, newPoss, newSymsUsed, symIsWide, rnd))
                 yield return sln;
         }
+    }
+
+    private IEnumerator IntroduceTwodoku((int cell, bool isNumClue, int clue)[] req, bool[] arrangement)
+    {
+        req.Shuffle();
+
+        foreach (var (cell, isNumClue, clue) in req)
+                StartCoroutine(HandleSymbolIn(cell, AllSprites[(isNumClue ? 1 : 6) + clue]));
+
+        yield return new WaitForSeconds(1.25f);
+
+        foreach (var row in Enumerable.Range(0, 6).ToList().Shuffle())
+        {
+            var col = arrangement.Skip(6 * row).Take(6).IndexOf(true);
+            SpawnMarker(col + 6 * row);
+        }
+    }
+
+    private static int[] _solveSymbols = new[] { 0, 1, 2, 2, 3, 4, 5, 1 };
+    private static int[] _solveLocations = new[] { 13, 14, 15, 16, 19, 20, 21, 22 };
+
+    private IEnumerator SolveAnim()
+    {
+        foreach (var image in InstantiatedSymbols)
+            StartCoroutine(HandleSymbolOut(image));
+
+        foreach (var marker in InstantiatedMarkers)
+            Destroy(marker.gameObject);
+
+        InstantiatedSymbols.Clear();
+        InstantiatedMarkers.Clear();
+
+        yield return new WaitForSeconds(1.25f);
+
+
+        for (int i = 0; i < _solveSymbols.Length; i++)
+            StartCoroutine(HandleSymbolIn(_solveLocations[i], AllSprites[22 + _solveSymbols[i]]));
+    }
+
+    private Vector3 GetLocationFromInt(int location)
+    {
+        return new Vector3(Mathf.Lerp(-0.05555f, 0.05555f, (location % 6) / 5f), Mathf.Lerp(0.05555f, -0.05555f, (location / 6) / 5f));
+    }
+
+    private void PlaceSymbol(Image target, int location)
+    {
+        target.transform.localPosition = GetLocationFromInt(location);
+    }
+
+    private void SpawnMarker(int location)
+    {
+        SymbolTemplate.transform.localScale = Vector3.one;
+
+        InstantiatedMarkers.Add(Instantiate(SymbolTemplate, SymbolTemplate.transform.parent));
+        var image = InstantiatedMarkers.Last();
+        image.rectTransform.sizeDelta = Vector2.one * 0.022f;
+        image.sprite = AllSprites[0];
+        PlaceSymbol(image, location);
+
+        SymbolTemplate.transform.localScale = Vector3.zero;
+    }
+
+    private IEnumerator HandleSymbolIn(int location, Sprite sprite)
+    {
+        SymbolTemplate.transform.localScale = Vector3.one;
+
+        InstantiatedSymbols.Add(Instantiate(SymbolTemplate, SymbolTemplate.transform.parent));
+        var image = InstantiatedSymbols.Last();
+        image.rectTransform.sizeDelta = Vector2.one * 0.0175f;
+
+        Vector3 endLocation = image.transform.localPosition = GetLocationFromInt(location);
+        Vector3 initLocation = image.transform.localPosition = endLocation + (Vector3.up * 0.13333f);
+        image.sprite = sprite;
+
+        SymbolTemplate.transform.localScale = Vector3.zero;
+
+        float duration = Rnd.Range(0.85f, 1.1f);
+
+        float timer = 0;
+        while (timer < duration)
+        {
+            yield return null;
+            timer += Time.deltaTime;
+            image.transform.localPosition = new Vector3(InSine(timer, initLocation.x, endLocation.x, duration),
+                InSine(timer, initLocation.y, endLocation.y, duration), 0);
+        }
+        image.transform.localPosition = endLocation;
+    }
+
+    private IEnumerator HandleSymbolOut(Image target)
+    {
+        Vector3 initLocation = target.transform.localPosition;
+        Vector3 endLocation = initLocation - (Vector3.up * 0.13333f);
+
+        float duration = Rnd.Range(0.85f, 1.1f);
+
+        float timer = 0;
+        while (timer < duration)
+        {
+            yield return null;
+            timer += Time.deltaTime;
+            target.transform.localPosition = new Vector3(InSine(timer, initLocation.x, endLocation.x, duration),
+                InSine(timer, initLocation.y, endLocation.y, duration), 0);
+        }
+        Destroy(target.gameObject);
+    }
+
+    public static float InSine(float time, float start, float end, float duration)
+    {
+        return (start - end) * Mathf.Cos(time / duration * (Mathf.PI / 2)) + (end - start) + start;
     }
 }
