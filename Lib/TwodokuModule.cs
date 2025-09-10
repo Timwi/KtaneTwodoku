@@ -262,7 +262,7 @@ public class TwodokuModule : MonoBehaviour
         }
 
         var lastSq = Rnd.Range(0, 36);
-        SymbolTemplate.transform.localPosition = GetLocationFromInt(lastSq);
+        SymbolTemplate.transform.localPosition = GetLocationFromSq(lastSq);
         SymbolTemplate.transform.localScale = Vector3.one;
         SymbolTemplate.sprite = HighlightSprite;
         while (!threadDone || !_activated)
@@ -272,11 +272,11 @@ public class TwodokuModule : MonoBehaviour
             float duration = .3f, elapsed = 0;
             while (elapsed < duration)
             {
-                SymbolTemplate.transform.localPosition = Vector3.Lerp(GetLocationFromInt(lastSq), GetLocationFromInt(newSq), Easing.InOutQuad(elapsed, 0, 1, duration));
+                SymbolTemplate.transform.localPosition = Vector3.Lerp(GetLocationFromSq(lastSq), GetLocationFromSq(newSq), Easing.InOutQuad(elapsed, 0, 1, duration));
                 yield return null;
                 elapsed += Time.deltaTime;
             }
-            SymbolTemplate.transform.localPosition = GetLocationFromInt(newSq);
+            SymbolTemplate.transform.localPosition = GetLocationFromSq(newSq);
 
             lastSq = newSq;
             yield return new WaitForSeconds(0.35f);
@@ -453,14 +453,11 @@ public class TwodokuModule : MonoBehaviour
         }
     }
 
-    private Vector3 GetLocationFromInt(int location)
-    {
-        return new Vector3(Mathf.Lerp(-0.05555f, 0.05555f, (location % 6) / 5f), Mathf.Lerp(0.05555f, -0.05555f, (location / 6) / 5f));
-    }
+    private Vector3 GetLocationFromSq(int location) => new(Mathf.Lerp(-0.05555f, 0.05555f, location % 6 / 5f), Mathf.Lerp(0.05555f, -0.05555f, location / 6 / 5f));
 
     private void PlaceSymbol(Image target, int location)
     {
-        target.transform.localPosition = GetLocationFromInt(location);
+        target.transform.localPosition = GetLocationFromSq(location);
     }
 
     private void SpawnMarker(int location)
@@ -484,7 +481,7 @@ public class TwodokuModule : MonoBehaviour
         var image = _instantiatedSymbols.Last();
         image.rectTransform.sizeDelta = Vector2.one * 0.0175f;
 
-        Vector3 endLocation = image.transform.localPosition = GetLocationFromInt(location);
+        Vector3 endLocation = image.transform.localPosition = GetLocationFromSq(location);
         Vector3 initLocation = image.transform.localPosition = endLocation + (Vector3.up * (location / 6 + 1) / 45f);
         image.sprite = sprite;
 
@@ -505,15 +502,13 @@ public class TwodokuModule : MonoBehaviour
         Vector3 initLocation = target.transform.localPosition;
         Vector3 endLocation = initLocation - (Vector3.up * 0.13333f);
 
-        float duration = Rnd.Range(0.85f, 1.1f);
-
-        float timer = 0;
-        while (timer < duration)
+        float duration = Rnd.Range(0.85f, 1.1f), elapsed = 0;
+        while (elapsed < duration)
         {
+            target.transform.localPosition = new Vector3(Easing.InSine(elapsed, initLocation.x, endLocation.x, duration),
+                Easing.InSine(elapsed, initLocation.y, endLocation.y, duration), 0);
             yield return null;
-            timer += Time.deltaTime;
-            target.transform.localPosition = new Vector3(Easing.InSine(timer, initLocation.x, endLocation.x, duration),
-                Easing.InSine(timer, initLocation.y, endLocation.y, duration), 0);
+            elapsed += Time.deltaTime;
         }
         Destroy(target.gameObject);
     }
