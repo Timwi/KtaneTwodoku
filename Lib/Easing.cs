@@ -1,5 +1,6 @@
-using UnityEngine;
-// ReSharper disable UnusedMember.Global
+﻿using UnityEngine;
+
+namespace Twodoku;
 
 public static class Easing
 {
