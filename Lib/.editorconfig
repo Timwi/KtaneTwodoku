@@ -196,6 +196,8 @@ dotnet_diagnostic.ide1006.severity = none
 # IDE0057: Substring can be simplified — I prefer to sometimes use .Substring
 dotnet_diagnostic.ide0057.severity = none
 
-# IDE0305/6: I want to be able to use .ToArray()/.ToList() and constructors such as new HashSet<T> etc.
+# IDE0305: I want to be able to use .ToArray()/.ToList()
 dotnet_diagnostic.IDE0305.severity = none
-dotnet_diagnostic.IDE0306.severity = none
+
+# CS0414: Field is assigned but never used (e.g. TwitchHelpMessage)
+dotnet_diagnostic.CS0414.severity = none

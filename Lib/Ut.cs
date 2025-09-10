@@ -781,7 +781,7 @@ public static class Ut
     {
         if (source == null)
             throw new ArgumentNullException(nameof(source));
-        return comparer == null ? new HashSet<T>(source) : new HashSet<T>(source, comparer);
+        return comparer == null ? [.. source] : new HashSet<T>(source, comparer);
     }
 
     /// <summary>

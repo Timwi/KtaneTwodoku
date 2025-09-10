@@ -284,7 +284,7 @@ public class TwodokuModule : MonoBehaviour
             SymbolTemplate.transform.localPosition = GetLocationFromSq(newSq);
 
             lastSq = newSq;
-            yield return new WaitForSeconds(0.35f);
+            yield return new WaitForSeconds(Rnd.Range(0.2f, 0.4f));
             if (isEditor)
                 lock (threadMessages)
                 {
