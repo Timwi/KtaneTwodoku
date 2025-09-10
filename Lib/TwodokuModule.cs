@@ -85,14 +85,7 @@ public class TwodokuModule : MonoBehaviour
             if (_moduleSolved || _solutionWord == null)
                 return false;
 
-            var reqLetter = _solutionWord[_solutionIx] - 'A';
-            var isCorrect = _inputLevel switch
-            {
-                0 => reqLetter / 9 == btn,
-                1 => (reqLetter / 3) % 3 == btn,
-                _ => reqLetter % 3 == btn,
-            };
-            if (isCorrect)
+            if (btn == GetCorrectButtonToPress())
             {
                 _inputLevel++;
                 if (_inputLevel == 3)
@@ -137,6 +130,18 @@ public class TwodokuModule : MonoBehaviour
 
             return false;
         };
+    }
+
+    private int GetCorrectButtonToPress()
+    {
+        var reqLetter = _solutionWord[_solutionIx] - 'A';
+        var expectedButton = _inputLevel switch
+        {
+            0 => reqLetter / 9,
+            1 => (reqLetter / 3) % 3,
+            _ => reqLetter % 3
+        };
+        return expectedButton;
     }
 
     private static string[] _buttonLevel0 = "A-I|J-R|S-Z".Split('|');
@@ -560,5 +565,30 @@ public class TwodokuModule : MonoBehaviour
             return null;
         }
         return recurse([], Enumerable.Range(0, 36).Select(cell => rnd.ShuffleFisherYates(_allRegions.Where(reg => reg.Contains(cell)).ToArray())).ToArray(), new bool[36]);
+    }
+
+    private readonly string TwitchHelpMessage = @"!{0} 123 [press buttons 1 2 3, top to bottom]";
+
+    List<KMSelectable> ProcessTwitchCommand(string command)
+    {
+        var btns = new List<KMSelectable>();
+        foreach (var ch in command)
+            if ("123".Contains(ch))
+                btns.Add(Buttons[ch - '1']);
+            else if (!char.IsWhiteSpace(ch))
+                return null;
+        return btns;
+    }
+
+    IEnumerator TwitchHandleForcedSolve()
+    {
+        while (!_activated)
+            yield return true;
+
+        while (!_moduleSolved)
+        {
+            Buttons[GetCorrectButtonToPress()].OnInteract();
+            yield return new WaitForSeconds(.1f);
+        }
     }
 }
