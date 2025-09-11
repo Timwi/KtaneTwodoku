@@ -88,6 +88,7 @@ public class TwodokuModule : MonoBehaviour
             if (btn == GetCorrectButtonToPress())
             {
                 _inputLevel++;
+                Audio.PlaySoundAtTransform("input" + _inputLevel, transform);
                 if (_inputLevel == 3)
                 {
                     _solutionIx++;
@@ -476,6 +477,7 @@ public class TwodokuModule : MonoBehaviour
         PlaceSymbol(image, location);
 
         SymbolTemplate.transform.localScale = Vector3.zero;
+        Audio.PlaySoundAtTransform("beep3", transform);
     }
 
     private IEnumerator HandleSymbolIn(int location, Sprite sprite)
@@ -500,6 +502,7 @@ public class TwodokuModule : MonoBehaviour
             elapsed += Time.deltaTime;
         }
         image.transform.localPosition = endLocation;
+        Audio.PlaySoundAtTransform("beep" + Rnd.Range(1, 4), transform);
     }
 
     private IEnumerator HandleSymbolOut(Image target)
