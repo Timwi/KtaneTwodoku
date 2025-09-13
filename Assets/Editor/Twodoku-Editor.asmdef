@@ -1,0 +1,10 @@
+{
+  "name": "Twodoku-Editor",
+  "references": [
+    "Twodoku"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": []
+}

@@ -53,7 +53,7 @@ public class TwodokuModule : MonoBehaviour
         for (int i = 0; i < Buttons.Length; i++)
             Buttons[i].OnInteract += ButtonPress(i);
         SolutionDisplay.text = "";
-        SymbolTemplate.transform.localScale = Vector3.zero;
+        SymbolTemplate.gameObject.SetActive(false);
         Module.OnActivate += delegate { _activated = true; };
 
         var rnd = RuleSeedable.GetRNG();
@@ -67,10 +67,12 @@ public class TwodokuModule : MonoBehaviour
         {
             var regionsA = GenerateRegions(rnd);
             var regionsB = GenerateRegions(rnd);
-            _getTypeARegion = cell => regionsA.IndexOf(reg => reg.Contains(cell));
-            _getTypeBRegion = cell => regionsB.IndexOf(reg => reg.Contains(cell));
-            Debug.Log($"<Twodoku #{_moduleId}> Type-A regions: {regionsA.Select(r => r.Select(cell => $"{(char) ('A' + cell % 6)}{cell / 6 + 1}").JoinString(", ")).JoinString(" // ")}");
-            Debug.Log($"<Twodoku #{_moduleId}> Type-B regions: {regionsB.Select(r => r.Select(cell => $"{(char) ('A' + cell % 6)}{cell / 6 + 1}").JoinString(", ")).JoinString(" // ")}");
+            var regionAMap = Ut.NewArray(36, cell => regionsA.IndexOf(reg => reg.Contains(cell)));
+            var regionBMap = Ut.NewArray(36, cell => regionsB.IndexOf(reg => reg.Contains(cell)));
+            _getTypeARegion = cell => regionAMap[cell];
+            _getTypeBRegion = cell => regionBMap[cell];
+            Debug.Log($"<Twodoku #{_moduleId}> Type-A regions: {regionsA.Select(r => r.Select(cell => $"{(char) ('A' + cell % 6)}{cell / 6 + 1}").JoinString(", ")).JoinString(" // ")}\n{regionAMap.JoinString(", ")}");
+            Debug.Log($"<Twodoku #{_moduleId}> Type-B regions: {regionsB.Select(r => r.Select(cell => $"{(char) ('A' + cell % 6)}{cell / 6 + 1}").JoinString(", ")).JoinString(" // ")}\n{regionBMap.JoinString(", ")}");
         }
 
         StartCoroutine(GeneratePuzzle());
@@ -157,6 +159,7 @@ public class TwodokuModule : MonoBehaviour
 
     public IEnumerator GeneratePuzzle()
     {
+        yield return null;
         var seed = Rnd.Range(int.MinValue, int.MaxValue);
         var rnd = new System.Random(seed);
         Debug.Log($"[Twodoku #{_moduleId}] Random seed: {seed}");
@@ -193,7 +196,7 @@ public class TwodokuModule : MonoBehaviour
                         symIsWide = symIsWideF;
                         arrangement = allArrangements[arrIx];
                         var startGrid = Enumerable.Range(0, 36).Select(i => arrangement[i] ? encs[i / 6] : _allPoss).ToArray();
-                        solution = recurse(new int?[36], new int?[36], startGrid, [], symIsWide, rnd).FirstOrDefault();
+                        solution = recurse(new int?[36], new int?[36], startGrid, [], symIsWide, rnd, DateTime.UtcNow).FirstOrDefault();
                         if (solution == null)
                         {
                             if (isEditor)
@@ -269,8 +272,8 @@ public class TwodokuModule : MonoBehaviour
 
         var lastSq = Rnd.Range(0, 36);
         SymbolTemplate.transform.localPosition = GetLocationFromSq(lastSq);
-        SymbolTemplate.transform.localScale = Vector3.one;
         SymbolTemplate.sprite = HighlightSprite;
+        SymbolTemplate.gameObject.SetActive(true);
         while (!threadDone || !_activated)
         {
             var newSq = (lastSq + Rnd.Range(1, 36)) % 36;
@@ -294,8 +297,8 @@ public class TwodokuModule : MonoBehaviour
                     threadMessages.Clear();
                 }
         }
+        SymbolTemplate.gameObject.SetActive(false);
 
-        SymbolTemplate.transform.localScale = Vector3.zero;
         if (isEditor)
             foreach (var msg in threadMessages)
                 log(msg);
@@ -325,8 +328,10 @@ public class TwodokuModule : MonoBehaviour
         }
     }
 
-    private IEnumerable<(int sym, int num)[]> recurse(int?[] sofarSym, int?[] sofarNum, (int sym, int num)[][] possibilities, int[] symsUsed, bool symIsWide, System.Random rnd)
+    private IEnumerable<(int sym, int num)[]> recurse(int?[] sofarSym, int?[] sofarNum, (int sym, int num)[][] possibilities, int[] symsUsed, bool symIsWide, System.Random rnd, DateTime? startTime = null)
     {
+        if (startTime is { } dt && (DateTime.UtcNow - dt).TotalSeconds > 1)
+            yield break;
         var bestCell = -1;
         var bestIsNum = false;
         HashSet<int> bestPosses = null;
@@ -406,10 +411,11 @@ public class TwodokuModule : MonoBehaviour
                 ? newPoss[bestCell].Where(tup => bestIsNum ? tup.num == value : tup.sym == value).ToArray()
                 : null;
 
-            bool elemNotAvailable(Func<(int sym, int num), int> getter)
+            bool elemNotAvailable(Func<(int sym, int num), int> getter, Func<int, int> getBox)
             {
                 var rowsHave = Ut.NewArray(6, _ => new bool[6]);
                 var colsHave = Ut.NewArray(6, _ => new bool[6]);
+                var boxesHave = Ut.NewArray(6, _ => new bool[6]);
                 for (var i = 0; i < 36; i++)
                     if (newPoss[i] is { } arr)
                         foreach (var tup in arr)
@@ -417,21 +423,24 @@ public class TwodokuModule : MonoBehaviour
                             var v = getter(tup);
                             rowsHave[i / 6][v] = true;
                             colsHave[i % 6][v] = true;
+                            boxesHave[getBox(i)][v] = true;
                         }
                     else
                     {
                         var v = getter((newSofarSym[i].Value, newSofarNum[i].Value));
                         rowsHave[i / 6][v] = true;
                         colsHave[i % 6][v] = true;
+                        boxesHave[getBox(i)][v] = true;
                     }
-                return rowsHave.Any(r => r.Contains(false)) || colsHave.Any(c => c.Contains(false));
+                return rowsHave.Any(r => r.Contains(false)) || colsHave.Any(c => c.Contains(false)) || boxesHave.Any(c => c.Contains(false));
             }
 
             // If any row, column or box can no longer contain a particular number or symbol, bail out
-            if (elemNotAvailable(tup => tup.num) || (newSymsUsed.Length == 6 && elemNotAvailable(tup => newSymsUsed.IndexOf(tup.sym))))
+            if (elemNotAvailable(tup => tup.num, symIsWide ? _getTypeBRegion : _getTypeARegion) ||
+                        (newSymsUsed.Length == 6 && elemNotAvailable(tup => newSymsUsed.IndexOf(tup.sym), symIsWide ? _getTypeARegion : _getTypeBRegion)))
                 continue;
 
-            foreach (var sln in recurse(newSofarSym, newSofarNum, newPoss, newSymsUsed, symIsWide, rnd))
+            foreach (var sln in recurse(newSofarSym, newSofarNum, newPoss, newSymsUsed, symIsWide, rnd, startTime))
                 yield return sln;
         }
     }
@@ -468,31 +477,25 @@ public class TwodokuModule : MonoBehaviour
 
     private void SpawnMarker(int location)
     {
-        SymbolTemplate.transform.localScale = Vector3.one;
-
         _instantiatedMarkers.Add(Instantiate(SymbolTemplate, SymbolTemplate.transform.parent));
         var image = _instantiatedMarkers.Last();
+        image.gameObject.SetActive(true);
         image.rectTransform.sizeDelta = Vector2.one * 0.022f;
         image.sprite = HighlightSprite;
         PlaceSymbol(image, location);
-
-        SymbolTemplate.transform.localScale = Vector3.zero;
         Audio.PlaySoundAtTransform("beep3", transform);
     }
 
     private IEnumerator HandleSymbolIn(int location, Sprite sprite)
     {
-        SymbolTemplate.transform.localScale = Vector3.one;
-
         _instantiatedSymbols.Add(Instantiate(SymbolTemplate, SymbolTemplate.transform.parent));
         var image = _instantiatedSymbols.Last();
+        image.gameObject.SetActive(true);
         image.rectTransform.sizeDelta = Vector2.one * 0.0175f;
 
         Vector3 endLocation = image.transform.localPosition = GetLocationFromSq(location);
         Vector3 initLocation = image.transform.localPosition = endLocation + (Vector3.up * (location / 6 + 1) / 45f);
         image.sprite = sprite;
-
-        SymbolTemplate.transform.localScale = Vector3.zero;
 
         float duration = Rnd.Range(0.85f, 1.1f) * (location / 6 + 1) / 6f, elapsed = 0;
         while (elapsed < duration)
