@@ -71,8 +71,8 @@ public class TwodokuModule : MonoBehaviour
             var regionBMap = Ut.NewArray(36, cell => regionsB.IndexOf(reg => reg.Contains(cell)));
             _getTypeARegion = cell => regionAMap[cell];
             _getTypeBRegion = cell => regionBMap[cell];
-            Debug.Log($"<Twodoku #{_moduleId}> Type-A regions: {regionsA.Select(r => r.Select(cell => $"{(char) ('A' + cell % 6)}{cell / 6 + 1}").JoinString(", ")).JoinString(" // ")}\n{regionAMap.JoinString(", ")}");
-            Debug.Log($"<Twodoku #{_moduleId}> Type-B regions: {regionsB.Select(r => r.Select(cell => $"{(char) ('A' + cell % 6)}{cell / 6 + 1}").JoinString(", ")).JoinString(" // ")}\n{regionBMap.JoinString(", ")}");
+            Debug.Log($"<Twodoku #{_moduleId}> Type-A regions: {regionsA.Select(r => r.Select(cell => $"{(char) ('A' + cell % 6)}{cell / 6 + 1}").JoinString(", ")).JoinString(" // ")}");
+            Debug.Log($"<Twodoku #{_moduleId}> Type-B regions: {regionsB.Select(r => r.Select(cell => $"{(char) ('A' + cell % 6)}{cell / 6 + 1}").JoinString(", ")).JoinString(" // ")}");
         }
 
         StartCoroutine(GeneratePuzzle());
@@ -316,7 +316,7 @@ public class TwodokuModule : MonoBehaviour
         foreach (var (cell, isNumClue, clue) in displayedClues.GroupBy(c => c.cell / 6).OrderByDescending(g => g.Key).SelectMany(g => g.ToArray().Shuffle()))
         {
             yield return new WaitForSeconds(.1f);
-            StartCoroutine(HandleSymbolIn(cell, (isNumClue ? Numbers : Symbols)[clue]));
+            StartCoroutine(HandleSymbolIn(cell, (isNumClue ? Numbers : Symbols)[clue], $"{(isNumClue ? "Number" : "Symbol")}-{cell}-{clue}"));
         }
 
         yield return new WaitForSeconds(1.25f);
@@ -450,6 +450,8 @@ public class TwodokuModule : MonoBehaviour
 
     private IEnumerator SolveAnim()
     {
+        yield return null;
+
         foreach (var image in _instantiatedSymbols)
             StartCoroutine(HandleSymbolOut(image));
 
@@ -464,7 +466,7 @@ public class TwodokuModule : MonoBehaviour
         for (int i = 0; i < _solveLetters.Length; i++)
         {
             yield return new WaitForSeconds(.1f);
-            StartCoroutine(HandleSymbolIn(_solveLocations[i], Letters[_solveLetters[i]]));
+            StartCoroutine(HandleSymbolIn(_solveLocations[i], Letters[_solveLetters[i]], $"Letter-{i}"));
         }
     }
 
@@ -479,6 +481,7 @@ public class TwodokuModule : MonoBehaviour
     {
         _instantiatedMarkers.Add(Instantiate(SymbolTemplate, SymbolTemplate.transform.parent));
         var image = _instantiatedMarkers.Last();
+        image.name = $"Highlight-{location}";
         image.gameObject.SetActive(true);
         image.rectTransform.sizeDelta = Vector2.one * 0.022f;
         image.sprite = HighlightSprite;
@@ -486,10 +489,11 @@ public class TwodokuModule : MonoBehaviour
         Audio.PlaySoundAtTransform("beep3", transform);
     }
 
-    private IEnumerator HandleSymbolIn(int location, Sprite sprite)
+    private IEnumerator HandleSymbolIn(int location, Sprite sprite, string symbolName)
     {
         _instantiatedSymbols.Add(Instantiate(SymbolTemplate, SymbolTemplate.transform.parent));
         var image = _instantiatedSymbols.Last();
+        image.name = symbolName;
         image.gameObject.SetActive(true);
         image.rectTransform.sizeDelta = Vector2.one * 0.0175f;
 
